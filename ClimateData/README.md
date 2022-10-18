@@ -2,7 +2,7 @@ This data contains the average climate conditions for each city. The variables i
 
 * day - date
 * dataid - unique id for each household
-* airconditioning - air conditioning use for each household NOTE: this column is empty
+* airconditioning - air conditioning use for each household **NOTE: this column is empty**
 * rh - relative humidity (%)
 * Tc - air temperature (Celcius)
 * Tw - wet bulb temperature (Celcius)
