@@ -1,6 +1,6 @@
 # Project: Climate and Residential Air Conditioning (Pecan Street Data)
 # Code By: Simon Pezalla and Renee Obringer
-# Last Updated: 18 October 2022
+# Last Updated: 25 May 2023
 
 # ORGANIZATION:
 # This code is organized in sections, each denoted by multiple #
@@ -20,7 +20,7 @@ library(devtools)
 # set path 
 # NOTE: set this path to the folder on your personal machine which contains the downloaded data 
 # for example: path <- '/Users/rqo5125/Downloads/ClimateResidentialAC'
-path <- '/Users/rqo5125/Library/Mobile Documents/com~apple~CloudDocs/Documents/Research/2022_23/projects/buildingenergy'
+path <- '   '
 
 # OPTIONAL: Create a directory for output files
 outputdir <- paste(path,'/output/', sep = '') 
@@ -44,48 +44,15 @@ id_var_austin <- unique(austin['dataid'])
 id_var_ny <- unique(newyork['dataid'])
 id_var_sd <- unique(sandiego['dataid'])
 
-# Removes all houses with median AC use less than 2 kWh
-
+# create a list of cities
 cities <- list(austin, newyork, sandiego)
-
-#id_variables <- list(id_var_austin,id_var_ny,id_var_sd)
-#ids_with_no_ac <- list(c(), c(), c())
-
-#for (c in 1:3) {
-#  for (i in 1:nrow(id_variables[[c]])) {
-#    if (median(cities[[c]][which(cities[[c]]$dataid == id_variables[[c]][i,]),]$airconditioning) <= 0) {
-#      ids_with_no_ac[[c]][i] <- id_variables[[c]][i,]
-#    }
-#  }
-#}
-
-#austin <- austin[!(austin$dataid %in% ids_with_no_ac[[1]]),]
-#newyork <- newyork[!(newyork$dataid %in% ids_with_no_ac[[2]]),]
-#sandiego <- sandiego[!(sandiego$dataid %in% ids_with_no_ac[[3]]),]
 
 # remove zeroes + negatives + standby power (assumed to be 2 kWh per day ~ 0.08 kWh per hour)
 austin[austin$airconditioning <= 0.08, 3] <- NA; austin <- na.omit(austin)
 newyork[newyork$airconditioning <= 0.08, 3] <- NA; newyork <- na.omit(newyork)
 sandiego[sandiego$airconditioning <= 0.08, 3] <- NA; sandiego <- na.omit(sandiego)
 
-# remove households with < 100 data points
-#id_variables <- list(id_var_austin,id_var_ny,id_var_sd)
-#ids_with_no_ac <- list(c(), c(), c())
-
-#for (c in 1:3) {
-#  for (i in 1:nrow(id_variables[[c]])) {
-#    if (sum(cities[[c]]$dataid == id_variables[[c]][i,]) < 100) {
-#      ids_with_no_ac[[c]][i] <- id_variables[[c]][i,]
-#    } else {
-#      print(sum(cities[[c]]$dataid == id_variables[[c]][i,]))
-#    }
-#  }
-#}
-
-#austin <- austin[!(austin$dataid %in% ids_with_no_ac[[1]]),]
-#newyork <- newyork[!(newyork$dataid %in% ids_with_no_ac[[2]]),]
-#sandiego <- sandiego[!(sandiego$dataid %in% ids_with_no_ac[[3]]),]
-
+# update list of cities
 cities <- list(austin, newyork, sandiego)
 
 setwd(outputdir)
@@ -542,10 +509,4 @@ plot(pdbart_fit_cities[[3]][[1]], xind = 2,  cols = c('black', 'red'), ylim = c(
 plot(pdbart_fit_cities[[3]][[1]], xind = 5,  cols = c('black', 'red'), ylim = c(1000,4000))
 dev.off()
 
-
-ids <- unique(sandiego$dataid)
-counts <- c()
-for (i in 1:length(ids)) {
-  counts[i] <- nrow(sandiego[sandiego$dataid == ids[i],])
-}
 
