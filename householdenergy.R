@@ -12,12 +12,15 @@
 # libraries
 library(tidymodels) 
 library(ggplot2)
+library(ggridges)
+library(cowplot)
 library(reshape2)
+library(devtools)
 
 # set path 
 # NOTE: set this path to the folder on your personal machine which contains the downloaded data 
 # for example: path <- '/Users/rqo5125/Downloads/ClimateResidentialAC'
-path <- ''
+path <- '/Users/rqo5125/Library/Mobile Documents/com~apple~CloudDocs/Documents/Research/2022_23/projects/buildingenergy'
 
 # OPTIONAL: Create a directory for output files
 outputdir <- paste(path,'/output/', sep = '') 
@@ -27,9 +30,9 @@ dir.create(outputdir)
 
 setwd(paste(path, '/inputdata', sep = ''))
 # load data
-austin <- read.csv('austindata.csv')
-newyork <- read.csv('newyorkdata.csv')
-sandiego <- read.csv('sandiegodata.csv')
+austin <- read.csv('austinhourlydata.csv')
+newyork <- read.csv('newyorkhourlydata.csv')
+sandiego <- read.csv('sandiegohourlydata.csv')
 
 # remove columns
 austin <- austin[,-c(1,4,6)]
@@ -45,41 +48,60 @@ id_var_sd <- unique(sandiego['dataid'])
 
 cities <- list(austin, newyork, sandiego)
 
-id_variables <- list(id_var_austin,id_var_ny,id_var_sd)
-ids_with_no_ac <- list(c(), c(), c())
+#id_variables <- list(id_var_austin,id_var_ny,id_var_sd)
+#ids_with_no_ac <- list(c(), c(), c())
 
-for (c in 1:3) {
-  for (i in 1:nrow(id_variables[[c]])) {
-    if (median(cities[[c]][which(cities[[c]]$dataid == id_variables[[c]][i,]),]$airconditioning) < 2) {
-      ids_with_no_ac[[c]][i] <- id_variables[[c]][i,]
-    }
-  }
-}
+#for (c in 1:3) {
+#  for (i in 1:nrow(id_variables[[c]])) {
+#    if (median(cities[[c]][which(cities[[c]]$dataid == id_variables[[c]][i,]),]$airconditioning) <= 0) {
+#      ids_with_no_ac[[c]][i] <- id_variables[[c]][i,]
+#    }
+#  }
+#}
 
-austin <- austin[!(austin$dataid %in% ids_with_no_ac[[1]]),]
-newyork <- newyork[!(newyork$dataid %in% ids_with_no_ac[[2]]),]
-sandiego <- sandiego[!(sandiego$dataid %in% ids_with_no_ac[[3]]),]
+#austin <- austin[!(austin$dataid %in% ids_with_no_ac[[1]]),]
+#newyork <- newyork[!(newyork$dataid %in% ids_with_no_ac[[2]]),]
+#sandiego <- sandiego[!(sandiego$dataid %in% ids_with_no_ac[[3]]),]
 
-# remove zeroes + negatives
-austin[austin$airconditioning <= 0, 3] <- NA; austin <- na.omit(austin)
-newyork[newyork$airconditioning <= 0, 3] <- NA; newyork <- na.omit(newyork)
-sandiego[sandiego$airconditioning <= 0, 3] <- NA; sandiego <- na.omit(sandiego)
+# remove zeroes + negatives + standby power (assumed to be 2 kWh per day ~ 0.08 kWh per hour)
+austin[austin$airconditioning <= 0.08, 3] <- NA; austin <- na.omit(austin)
+newyork[newyork$airconditioning <= 0.08, 3] <- NA; newyork <- na.omit(newyork)
+sandiego[sandiego$airconditioning <= 0.08, 3] <- NA; sandiego <- na.omit(sandiego)
+
+# remove households with < 100 data points
+#id_variables <- list(id_var_austin,id_var_ny,id_var_sd)
+#ids_with_no_ac <- list(c(), c(), c())
+
+#for (c in 1:3) {
+#  for (i in 1:nrow(id_variables[[c]])) {
+#    if (sum(cities[[c]]$dataid == id_variables[[c]][i,]) < 100) {
+#      ids_with_no_ac[[c]][i] <- id_variables[[c]][i,]
+#    } else {
+#      print(sum(cities[[c]]$dataid == id_variables[[c]][i,]))
+#    }
+#  }
+#}
+
+#austin <- austin[!(austin$dataid %in% ids_with_no_ac[[1]]),]
+#newyork <- newyork[!(newyork$dataid %in% ids_with_no_ac[[2]]),]
+#sandiego <- sandiego[!(sandiego$dataid %in% ids_with_no_ac[[3]]),]
 
 cities <- list(austin, newyork, sandiego)
 
 setwd(outputdir)
-save.image('cleaneddata.rdata')
+save.image('cleanedhourlydata.rdata')
 
 ################### TUNING + FITTING MODELS ##############
 
-setwd(outoutdir)
-load('cleaneddata.rdata')
+setwd(outputdir)
+load('cleanedhourlydata.rdata')
 
 # get unique ids
 id_vars <- list(unique(cities[[1]]['dataid']), unique(cities[[2]]['dataid']), unique(cities[[3]]['dataid']))
 
 # initialize storage variables
 metrics <- list(list(),list(),list())
+ypred <- list(list(),list(),list())
 
 # initialize models
 glm_mod <- linear_reg(mode = 'regression', penalty = 0) %>% set_engine('glmnet', family = 'gaussian')                                         # GLM
@@ -89,6 +111,9 @@ cart_mod <- decision_tree(tree_depth = tune(), cost_complexity = tune(), min_n =
 rf_mod <- rand_forest(mtry = tune(), trees = tune(), min_n = tune()) %>% set_engine("randomForest") %>% set_mode("regression")                # RANDOM FOREST
 bart_mod <- bart(trees = tune()) %>% set_engine("dbarts") %>% set_mode("regression")                                                          # BART
 nnet_mod <- mlp(hidden_units = tune(), penalty = tune()) %>% set_engine("nnet") %>% set_mode("regression")                                    # NEURAL NETWORK
+
+# run NRMSE custom metric code
+source(paste(path,'/NRMSE_tidymodels.R',sep = ''))
 
 # loop through each city
 for (c in 1:3) {
@@ -147,13 +172,13 @@ for (c in 1:3) {
     nnet_wf2 <- nnet_wf %>% finalize_workflow(nnet_best_params)
     
     # fit models
-    glm_fit <- glm_wf %>% fit_resamples(cv)
-    gam_fit <- gam_wf2 %>% fit_resamples(cv)
-    mars_fit <- mars_wf2 %>% fit_resamples(cv)
-    cart_fit <- cart_wf2 %>% fit_resamples(cv)
-    rf_fit <- rf_wf2 %>% fit_resamples(cv)
-    bart_fit <- bart_wf2 %>% fit_resamples(cv)
-    nnet_fit <- nnet_wf2 %>% fit_resamples(cv)
+    glm_fit <- glm_wf %>% fit_resamples(cv, metrics = metric_set(rmse, rsq, mpe, nrmse), control = control_resamples(save_pred = TRUE))
+    gam_fit <- gam_wf2 %>% fit_resamples(cv, metrics = metric_set(rmse, rsq, mpe, nrmse), control = control_resamples(save_pred = TRUE))
+    mars_fit <- mars_wf2 %>% fit_resamples(cv, metrics = metric_set(rmse, rsq, mpe, nrmse), control = control_resamples(save_pred = TRUE))
+    cart_fit <- cart_wf2 %>% fit_resamples(cv, metrics = metric_set(rmse, rsq, mpe, nrmse), control = control_resamples(save_pred = TRUE))
+    rf_fit <- rf_wf2 %>% fit_resamples(cv, metrics = metric_set(rmse, rsq, mpe, nrmse), control = control_resamples(save_pred = TRUE))
+    bart_fit <- bart_wf2 %>% fit_resamples(cv, metrics = metric_set(rmse, rsq, mpe, nrmse), control = control_resamples(save_pred = TRUE))
+    nnet_fit <- nnet_wf2 %>% fit_resamples(cv, metrics = metric_set(rmse, rsq, mpe, nrmse), control = control_resamples(save_pred = TRUE))
     
     # store results
     metrics[[c]][['glm']][[h]] <- collect_metrics(glm_fit)
@@ -163,7 +188,17 @@ for (c in 1:3) {
     metrics[[c]][['rf']][[h]] <- collect_metrics(rf_fit)
     metrics[[c]][['bart']][[h]] <- collect_metrics(bart_fit)
     metrics[[c]][['nnet']][[h]] <- collect_metrics(nnet_fit)
+    
+    ypred[[c]][['glm']][[h]] <- collect_predictions(glm_fit)
+    ypred[[c]][['gam']][[h]] <- collect_predictions(gam_fit)
+    ypred[[c]][['mars']][[h]] <- collect_predictions(mars_fit)
+    ypred[[c]][['cart']][[h]] <- collect_predictions(cart_fit)
+    ypred[[c]][['rf']][[h]] <- collect_predictions(rf_fit)
+    ypred[[c]][['bart']][[h]] <- collect_predictions(bart_fit)
+    ypred[[c]][['nnet']][[h]] <- collect_predictions(nnet_fit)
+    print(h)
   }
+  print(c)
 }
 
 setwd(outputdir)
@@ -174,7 +209,7 @@ save.image('modelrundata.rdata')
 library(dbarts)
 
 setwd(outputdir)
-load('cleaneddata.rdata')
+load('cleanedhourlydata.rdata')
 
 # get unique ids
 id_vars <- list(unique(cities[[1]]['dataid']), unique(cities[[2]]['dataid']), unique(cities[[3]]['dataid']))
@@ -206,14 +241,14 @@ for (c in 1:3) {
 }
 
 setwd(outputdir)
-save.image('bartmodelrun.rdata')
+save.image('bartmodelrun_hourly.rdata')
 
 ################### ANALYSIS + FIGURES ##############
 
 setwd(outputdir)
 
 load('modelrundata.rdata')
-load('bartmodelrun.rdata')
+load('bartmodelrun_hourly.rdata')
 
 # re-organize metrics list
 
@@ -239,8 +274,8 @@ for (j in 1:3) {
   }
   
   # create label data
-  households <- rep(1:n, each = 2)
-  measure <- rep(c('rmse','rsq'), n)
+  households <- rep(1:n, each = 4)
+  measure <- rep(c('mpe','nrmse','rmse','rsq'), n)
   city <- rep(cityname[j],n*2)
   
   # combine data for a specific city
@@ -258,6 +293,24 @@ allresults_long$value <- as.numeric(allresults_long$value)
 # get mean values
 averages <- aggregate(allresults_long$value, list(allresults_long$city, allresults_long$measure, allresults_long$variable), function(x) mean(x, na.rm = T))
 
+setwd(outputdir)
+write.csv(averages,'averagevalues.csv')
+
+# distribution of air conditioning values across all households in each city
+medians <- c(median(cities[[1]]$airconditioning),median(cities[[2]]$airconditioning),median(cities[[3]]$airconditioning))
+maxs <- c(max(cities[[1]]$airconditioning),max(cities[[2]]$airconditioning),max(cities[[3]]$airconditioning))
+mins <- c(min(cities[[1]]$airconditioning),min(cities[[2]]$airconditioning),min(cities[[3]]$airconditioning))
+
+citylist <- c('Austin', 'Ithaca', 'San Diego')
+plotdata <- data.frame(medians, maxs, mins, citylist)
+
+ggplot(plotdata, aes(y=factor(citylist, levels = rev(levels(factor(citylist)))), 
+                              xmin = mins, xmax = maxs, x = medians)) + 
+  geom_point(aes(color = citylist), size = 5) + geom_errorbar(aes(color = citylist), width = 0.25, size = 1) + theme_light() + 
+  xlab('Hourly Air Conditioning Use (kWh)') + ylab('City') + 
+  scale_color_manual(values = c('#66c2a5','#fc8d62','#8da0cb'), guide = 'none') + 
+  theme(text = element_text(size = 18)) 
+
 # t-test for MARS v BART
 atxMARS <- allresults_long[which(allresults_long$city == 'Austin' & allresults_long$measure == 'rmse' & allresults_long$variable == 'mars'),5]
 atxBART <- allresults_long[which(allresults_long$city == 'Austin' & allresults_long$measure == 'rmse' & allresults_long$variable == 'bart'),5]
@@ -273,7 +326,52 @@ t.test(sdMARS, sdBART)
 
 # plots
 
-bartresults <- allresults_long[which(allresults_long$measure == 'rmse'),]
+# INPUT DATA
+
+inputdata <- rbind(austin, newyork, sandiego)
+cities <- c(rep('Austin', 98795), rep('Ithaca', 15404), rep('San Diego', 24583))
+inputdata <- cbind(inputdata, cities)
+
+p1 <- ggplot(inputdata) + geom_density_ridges(aes(x = rh, y = cities), fill = '#8dd3c7', rel_min_height = 0.01, scale = 1.5, alpha = 0.7) +
+  theme_light() + scale_y_discrete(limits = rev) + ylab('') + xlab('Rel. Humidity (%)') + 
+  theme(text = element_text(size = 16))
+
+p2 <- ggplot(inputdata) + geom_density_ridges(aes(x = Tc, y = cities), fill = '#ffffb3', rel_min_height = 0.01, scale = 1.5, alpha = 0.7) +
+  theme_light() + scale_y_discrete(limits = rev) + ylab('') + xlab('Air Temp. (C)') + 
+  theme(text = element_text(size = 16))
+
+p3 <- ggplot(inputdata) + geom_density_ridges(aes(x = Tw, y = cities), fill = '#bebada', rel_min_height = 0.01, scale = 1.5, alpha = 0.7) +
+  theme_light() + scale_y_discrete(limits = rev) + ylab('') + xlab('Wet Bulb Temp. (C)') + 
+  theme(text = element_text(size = 16))
+
+p4 <- ggplot(inputdata) + geom_density_ridges(aes(x = Td, y = cities), fill = '#fb8072', rel_min_height = 0.01, scale = 1.5, alpha = 0.7) +
+  theme_light() + scale_y_discrete(limits = rev) + ylab('') + xlab('Dew Point Temp. (C)') + 
+  theme(text = element_text(size = 16))
+
+p5 <- ggplot(inputdata) + geom_density_ridges(aes(x = sWBGT, y = cities), fill = '#80b1d3', rel_min_height = 0.01, scale = 1.5, alpha = 0.7) +
+  theme_light() + scale_y_discrete(limits = rev) + ylab('') + xlab('sWBGT') + 
+  theme(text = element_text(size = 16))
+
+p6 <- ggplot(inputdata) + geom_density_ridges(aes(x = DI, y = cities), fill = '#fdb462', rel_min_height = 0.01, scale = 1.5, alpha = 0.7) +
+  theme_light() + scale_y_discrete(limits = rev) + ylab('') + xlab('DI') + 
+  theme(text = element_text(size = 16))
+
+p7 <- ggplot(inputdata) + geom_density_ridges(aes(x = HI, y = cities), fill = '#b3de69', rel_min_height = 0.01, scale = 1.5, alpha = 0.7) +
+  theme_light() + scale_y_discrete(limits = rev) + ylab('') + xlab('HI') + 
+  theme(text = element_text(size = 16))
+
+p8 <- ggplot(inputdata) + geom_density_ridges(aes(x = HUMIDEX, y = cities), fill = '#fccde5', rel_min_height = 0.01, scale = 1.5, alpha = 0.7) +
+  theme_light() + scale_y_discrete(limits = rev) + ylab('') + xlab('HUMIDEX') + 
+  theme(text = element_text(size = 16))
+
+setwd(outputdir)
+pdf('inputdata.pdf', width = 15, height = 6)
+plot_grid(p1, p2, p3, p4, p5, p6, p7, p8, nrow = 2)
+dev.off()
+
+# MODEL RESULTS
+
+bartresults <- allresults_long[which(allresults_long$measure == 'nrmse'),]
 means <- aggregate(bartresults$value, list(bartresults$city, bartresults$variable), mean)
 mins <- aggregate(bartresults$value, list(bartresults$city, bartresults$variable), min)
 maxs <- aggregate(bartresults$value, list(bartresults$city, bartresults$variable), max)
@@ -282,18 +380,20 @@ plotdata <- cbind(means, mins$x, maxs$x)
 names(plotdata) <- c('City', 'Model', 'Mean', 'Minimum', 'Maximum')
 
 setwd(outputdir)
-pdf('rmse_variation.pdf', width = 11, height = 7)
+pdf('rmse_variation_hourly.pdf', width = 11, height = 7)
 ggplot(plotdata, aes(x = City, y = Mean, fill = Model)) + geom_bar(stat = 'identity', position = position_dodge(), color = '#d3d3d3') +
   geom_errorbar(aes(x = City, ymin = Minimum, ymax = Maximum), position = position_dodge()) +
   scale_fill_manual(values = c('#8dd3c7','#ffffb3','#bebada','#fb8072','#80b1d3','#fdb462','#b3de69'), 
-                    labels = c('GLM','GAM', 'MARS','CART','RF','BART','NN')) + ylab('RMSE (kWh)') +
-  theme_light() + theme(text = element_text(size = 16))
+                    labels = c('GLM','GAM', 'MARS','CART','RF','BART','NN')) + ylab('NRMSE') +
+  theme_light() + theme(text = element_text(size = 16)) + 
+  scale_x_discrete(labels = c('Austin', 'Ithaca', 'San Diego')) + xlab('')
 dev.off() 
   
 # Variable Importance
 
 # source code for variable importance from https://github.com/cjcarlson/embarcadero
-source(paste(outputdir,'/varimp.R',sep = ''))
+#source(paste(path,'/varimp.R',sep = ''))
+source_url('https://raw.githubusercontent.com/cjcarlson/embarcadero/master/R/varimp.R')
 
 # initialize storage variable
 VIbart_all <- list()
@@ -353,18 +453,20 @@ plotdata <- data.frame(means, mins$x, maxs$x)
 names(plotdata) <- c('City', 'Predictor', 'Mean', 'Minimum', 'Maximum')
 
 setwd(outputdir)
-pdf('VIall_vertical.pdf', width = 6, height = 6.5)
+pdf('VIall_vertical_hourly.pdf', width = 10, height = 4)
 ggplot(plotdata) + geom_point(aes(y = Predictor, x = Mean, color = City), size = 2) +
   geom_errorbar(aes(xmin = Minimum, xmax = Maximum, y = Predictor, color = City), width = 0.2) +
   theme_light() + theme(text = element_text(size = 16), legend.position="bottom") +
-  scale_color_manual(values = c('#66c2a5','#fc8d62','#8da0cb')) + xlab('Variable Importance') +
-  scale_y_discrete(limits=rev)
+  scale_color_manual(values = c('#66c2a5','#fc8d62','#8da0cb'), labels = c('Austin', 'Ithaca', 'San Diego'), name = '') +
+  xlab('Variable Importance') + scale_y_discrete(limits=rev) +
+  facet_wrap(~City)
 dev.off()  
   
 # Partial Dependence  
   
 setwd(outputdir)
-load('cleaneddata.rdata')
+load('cleanedhourlydata.rdata')
+library(dbarts)
 
 # get unique ids
 id_vars <- list(unique(cities[[1]]['dataid']), unique(cities[[2]]['dataid']), unique(cities[[3]]['dataid']))
@@ -379,9 +481,13 @@ for (c in 1:3) {
   pdbart_mod_fin <- list()
   
   # loop through each house
-  for (h in 1:nrow(id_vars[[c]])) {
+  #for (h in 1:nrow(id_vars[[c]])) {
+  for (h in 1:5) {
    # select household
    hhdata <- cities[[c]][which(cities[[c]]$dataid == id_vars[[c]][1,]),]
+   
+   # convert kWh to Wh
+   hhdata$airconditioning <- hhdata$airconditioning*1000
 
    # sample data
    sample_rows <- sample(nrow(hhdata), size = 0.8*nrow(hhdata), replace = F) # sample 80% of the data WITHOUT replacement
@@ -390,22 +496,56 @@ for (c in 1:3) {
    hhdata_test <- hhdata[-sample_rows,] # create the test dataset (20%)
 
    # fit model
-   pdbart_mod_fin[[h]] <- pdbart(hhdata_train[,4:11], hhdata_train[,3], x.ind = c(1,2), ntree = 750, keeptrees = TRUE)
+   pdbart_mod_fin[[h]] <- pdbart(hhdata_train[,4:11], hhdata_train[,3], x.ind = c(1,2), ntree = 425, keeptrees = TRUE)
   }
   
   pdbart_fit_cities[[c]] <- pdbart_mod_fin
 }
 
 setwd(outputdir)
+save.image('pdp_Wh_5hh_run.rdata')
+
+setwd(outputdir)
 # plot all households
 
-lims <- matrix(c(0, 0, 0, 80, 40, 50), ncol = 2)
+lims <- matrix(c(0, 0, 0, 4, 2, 2.5), ncol = 2)
 for (c in 1:3) {
   for (h in 1:length(pdbart_fit_cities[[c]])) {
-    pdf(paste('pdp_city_', c, '_hh_', h, '.pdf', sep = ''), width = 8, height = 4)
-    par(mfrow=c(1,2))
-    plot(pdbart_fit_cities[[c]][[h]], xind = c(1,4),  cols = c('black', 'red'), ylim = c(lims[c,1], lims[c,2]))
+    pdf(paste('pdp_city_', c, '_hh_', h, '_hourly.pdf', sep = ''), width = 4, height = 8)
+    par(mfrow=c(4,2))
+    plot(pdbart_fit_cities[[c]][[h]], xind = c(1,4,2,3,5,6,7,8),  cols = c('black', 'red'))#, ylim = c(lims[c,1], lims[c,2]))
     dev.off()
   }
+}
+
+pdf(paste('allcities_RH_DPT_pdp.pdf', sep = ''), width = 10, height = 8)
+par(mfrow=c(3,4))
+# Austin Plots:
+#plot(pdbart_fit_cities[[1]][[1]], xind = c(1,4,2,5),  cols = c('black', 'red'))
+plot(pdbart_fit_cities[[1]][[1]], xind = 1,  cols = c('black', 'red'), ylim = c(1000,4000))
+plot(pdbart_fit_cities[[1]][[1]], xind = 4,  cols = c('black', 'red'), ylim = c(0,4000))
+plot(pdbart_fit_cities[[1]][[1]], xind = 2,  cols = c('black', 'red'), ylim = c(0,5200))
+plot(pdbart_fit_cities[[1]][[1]], xind = 5,  cols = c('black', 'red'), ylim = c(0,5200))
+
+# Ithaca Plots:
+#plot(pdbart_fit_cities[[3]][[1]], xind = c(1,4,2,5),  cols = c('black', 'red'))
+plot(pdbart_fit_cities[[2]][[3]], xind = 1,  cols = c('black', 'red'), ylim = c(300,1000))
+plot(pdbart_fit_cities[[2]][[3]], xind = 4,  cols = c('black', 'red'), ylim = c(-50,1000))
+plot(pdbart_fit_cities[[2]][[3]], xind = 2,  cols = c('black', 'red'), ylim = c(-200,1700))
+plot(pdbart_fit_cities[[2]][[3]], xind = 5,  cols = c('black', 'red'), ylim = c(-100,2000))
+
+# San Diego Plots: 
+#plot(pdbart_fit_cities[[3]][[1]], xind = c(1,4,2,5),  cols = c('black', 'red'))
+plot(pdbart_fit_cities[[3]][[1]], xind = 1,  cols = c('black', 'red'), ylim = c(1000,4200))
+plot(pdbart_fit_cities[[3]][[1]], xind = 4,  cols = c('black', 'red'), ylim = c(1000,4000))
+plot(pdbart_fit_cities[[3]][[1]], xind = 2,  cols = c('black', 'red'), ylim = c(1000,4000))
+plot(pdbart_fit_cities[[3]][[1]], xind = 5,  cols = c('black', 'red'), ylim = c(1000,4000))
+dev.off()
+
+
+ids <- unique(sandiego$dataid)
+counts <- c()
+for (i in 1:length(ids)) {
+  counts[i] <- nrow(sandiego[sandiego$dataid == ids[i],])
 }
 
