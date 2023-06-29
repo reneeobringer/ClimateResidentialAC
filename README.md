@@ -1,6 +1,6 @@
 # ClimateResidentialAC
 
-Code and data for an analysis of air conditioning use for 75 households across three US cities (Austin, TX, Ithaca, NY, and San Diego, CA). The results from the analysis are under review. 
+Code and data for an analysis of air conditioning use for 75 households across three US cities (Austin, TX, Ithaca, NY, and San Diego, CA). The results from the analysis have been accepted for publication in _Socio-Economic Planning Sciences_. 
 
 The code was developed in R version 4.1.2 and last ran on 25 May 2023. `householdenergy.R` will run the model analysis. `varimp.R` is a supplementary R script to conduct variable importance analysis.
 
