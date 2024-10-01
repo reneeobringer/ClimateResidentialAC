@@ -1,6 +1,6 @@
 # ClimateResidentialAC
 
-Code and data for an analysis of air conditioning use for 75 households across three US cities (Austin, TX, Ithaca, NY, and San Diego, CA). The results from the analysis have been accepted for publication in [_Socio-Economic Planning Sciences_](https://doi.org/10.1016/j.seps.2023.101664). The article can be cited as: 
+Code and data for an analysis of air conditioning use for 75 households across three US cities (Austin, TX, Ithaca, NY, and San Diego, CA). The results from the analysis were published in [_Socio-Economic Planning Sciences_](https://doi.org/10.1016/j.seps.2023.101664). The article can be cited as: 
 
 ```bibtex
 @article{pezalla2023,
